@@ -5,84 +5,36 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 }
 
 # Enable Real-time Protection
-Set-MpPreference -DisableRealtimeMonitoring $false
+reg add "HKLM\SOFTWARE\Microsoft\Windows Defender\Real-Time Protection" /v "DisableRealtimeMonitoring" /t REG_DWORD /d 0 /f
 
 # Enable Cloud-based Protection
-Set-MpPreference -UseCloudBlocklist $true
-Set-MpPreference -EnableCloudProtection $true
+reg add "HKLM\SOFTWARE\Microsoft\Windows Defender\Features" /v "UseCloudBlocklist" /t REG_DWORD /d 1 /f
+reg add "HKLM\SOFTWARE\Microsoft\Windows Defender\Features" /v "EnableCloudProtection" /t REG_DWORD /d 1 /f
 
 # Enable Automatic Sample Submission
-Set-MpPreference -SubmitSamplesConsent 2  # 2 = Send all samples automatically
+reg add "HKLM\SOFTWARE\Microsoft\Windows Defender\Features" /v "SubmitSamplesConsent" /t REG_DWORD /d 2 /f  # 2 = Send all samples automatically
 
-# Enable Windows Defender Antivirus
+# Enable Windows Defender Antivirus Service
 Set-Service -Name "WinDefend" -StartupType Automatic
 Start-Service -Name "WinDefend"
 
 # Enable Potentially Unwanted Application (PUA) Protection
-Set-MpPreference -PUAProtection Enabled
+reg add "HKLM\SOFTWARE\Microsoft\Windows Defender\Features" /v "PUAProtection" /t REG_DWORD /d 1 /f
 
 # Enable Network Protection
-Set-MpPreference -EnableNetworkProtection Enabled
+reg add "HKLM\SOFTWARE\Microsoft\Windows Defender\Features" /v "EnableNetworkProtection" /t REG_DWORD /d 1 /f
 
 # Enable Controlled Folder Access
-Set-MpPreference -ControlledFolderAccess Enabled
+reg add "HKLM\SOFTWARE\Microsoft\Windows Defender\Features" /v "ControlledFolderAccess" /t REG_DWORD /d 1 /f
 
 # Enable Exploit Protection
-Set-MpPreference -EnableExploitProtection Enabled
-
-# Block Script Execution
-Set-MpPreference -EnableScriptBlockLogging $false  # Disable logging of scripts
-Set-MpPreference -DisableScriptExecution $true      # Block script execution
-
-# Enable Beta updates
-Set-MpPreference -EnableEnhancedNotifications $true  # Enable enhanced notifications for beta updates
-Set-MpPreference -EnableBetaUpdates $true             # Enable beta updates for Windows Defender
-
-# Function to compute and verify hashes, blocking immediately if hash doesn't match
-function Verify-ApplicationHash {
-    param (
-        [string]$filePath,
-        [string]$expectedHash
-    )
-
-    if (Test-Path $filePath) {
-        $computedHash = (Get-FileHash -Path $filePath -Algorithm SHA256).Hash
-        if ($computedHash -eq $expectedHash) {
-            Write-Host "$filePath: Hash matches. Application is allowed."
-            return $true
-        } else {
-            Write-Host "$filePath: Hash does not match! Application is blocked."
-
-            # Block the application using Windows Defender
-            Add-MpPreference -BlockedApps $filePath
-            return $false
-        }
-    } else {
-        Write-Host "$filePath: File does not exist!"
-        return $false
-    }
-}
-
-# Example applications and their expected hashes
-$applications = @(
-    @{ Path = "C:\Windows\System32\notepad.exe"; Hash = "B21A600EF0D93C22C4B5A688A47C917BFFB3A493" },
-    @{ Path = "C:\Program Files\Mozilla Firefox\firefox.exe"; Hash = "D7F1BCE7F235DB7F354F00BF76D9A3C2D8C0D2E8" }
-)
-
-# Verify the hash of each application
-foreach ($app in $applications) {
-    Verify-ApplicationHash -filePath $app.Path -expectedHash $app.Hash
-}
-
-# Enable Attack Surface Reduction (ASR) rules (optional)
-# Example: Block credential stealing
-Set-MpPreference -AttackSurfaceReductionRules_Ids "D3D9BCE4-2B16-4C7F-BE61-91C3786DAA38"  # ID for blocking credential stealing
+reg add "HKLM\SOFTWARE\Microsoft\Windows Defender\Features" /v "EnableExploitProtection" /t REG_DWORD /d 1 /f
 
 # Enable Audit mode for Exploit Guard (optional)
-Set-MpPreference -EnableControlledFolderAccessAudit $true
+reg add "HKLM\SOFTWARE\Microsoft\Windows Defender\Features" /v "EnableControlledFolderAccessAudit" /t REG_DWORD /d 0 /f  # Set to 1 if you want to enable audit mode
 
 # Enable Endpoint Detection and Response (EDR) capabilities (requires Microsoft 365 E5 license)
-Set-MpPreference -EnableEDRReporting $true
+reg add "HKLM\SOFTWARE\Microsoft\Windows Defender\Features" /v "EnableEDRReporting" /t REG_DWORD /d 1 /f  # Set this if available
 
-# Display current settings
-Get-MpPreference | Format-List
+# Display current settings from the policies
+Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender" | Format-List -Force
