@@ -9,6 +9,38 @@ if (-not (Test-Path $policyStore)) {
 # Set the default policy to 'Disallowed' (nothing can execute unless explicitly allowed)
 Set-ItemProperty -Path $policyStore -Name "DefaultLevel" -Value 0x00000000
 
+# List of major LoLBins to block (excluding explorer.exe)
+$lolBins = @(
+    "C:\Windows\System32\bitsadmin.exe",
+    "C:\Windows\System32\certutil.exe",
+    "C:\Windows\System32\cmd.exe",
+    "C:\Windows\System32\curl.exe",
+    "C:\Windows\System32\powershell.exe",
+    "C:\Windows\System32\wmic.exe",
+    "C:\Windows\System32\mshta.exe",
+    "C:\Windows\System32\powershell_ise.exe",
+    "C:\Windows\System32\runas.exe",
+    "C:\Windows\System32\sc.exe",
+    "C:\Windows\System32\tasklist.exe",
+    "C:\Windows\System32\taskkill.exe",
+    "C:\Windows\System32\whoami.exe",
+    "C:\Windows\System32\schtasks.exe",
+    "C:\Windows\System32\net.exe",
+    "C:\Windows\System32\rundll32.exe",
+    "C:\Windows\System32\msiexec.exe",
+    "C:\Windows\System32\reg.exe",
+    "C:\Windows\System32\setx.exe",
+    "C:\Windows\System32\diskpart.exe"
+    # Note: explorer.exe is intentionally excluded
+)
+
+# Create deny rules for each LoLBin
+foreach ($lolBin in $lolBins) {
+    $denyRuleKey = "$policyStore\Paths\$($lolBin.Replace('\', '_'))"
+    New-Item -Path $denyRuleKey -Force
+    Set-ItemProperty -Path $denyRuleKey -Name "ItemData" -Value $lolBin
+    Set-ItemProperty -Path $denyRuleKey -Name "SaferFlags" -Value 0x00000000  # Deny execution
+}
 # 1. Allow specific trusted paths (e.g., C:\Windows, C:\Program Files, C:\Program Files\Windows Defender)
 $trustedPaths = @("C:\Windows", "C:\Program Files", "C:\Program Files (x86)", "C:\Program Files\Windows Defender")
 $count = 0
