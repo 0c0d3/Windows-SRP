@@ -6,8 +6,17 @@ if (-not (Test-Path $policyStore)) {
     New-Item -Path $policyStore -Force
 }
 
+# Set the policy store path (make sure this is correct)
+$policyStore = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+
+# Check if the DefaultLevel property exists
+if (-not (Get-ItemProperty -Path $policyStore -Name "DefaultLevel" -ErrorAction SilentlyContinue)) {
+    # Create the DefaultLevel property if it doesn't exist
+    New-ItemProperty -Path $policyStore -Name "DefaultLevel" -Value 0 -PropertyType DWord -Force
+}
+
 # Set the default policy to 'Disallowed' (nothing can execute unless explicitly allowed)
-Set-ItemProperty -Path $policyStore -Name "DefaultLevel" -Value 0x00000000
+Set-ItemProperty -Path $policyStore -Name "DefaultLevel" -Value 0  # 0 means 'Disallowed'
 
 # List of major LoLBins to block (excluding explorer.exe)
 $lolBins = @(
