@@ -52,14 +52,32 @@ foreach ($path in $trustedPaths) {
     $count++
 }
 
-# 2. Deny execution from common risky paths like Temp, AppData, or Downloads
+# Define SRP policy registry key
+$policyStore = "HKLM:\Software\Policies\Microsoft\Windows\Safer\CodeIdentifiers"
+
+# Create the policy key if it doesn't exist
+if (-not (Test-Path $policyStore)) {
+    New-Item -Path $policyStore -Force
+}
+
+# Create the Paths key if it doesn't exist
+$pathsKeyPath = "$policyStore\Paths"
+if (-not (Test-Path $pathsKeyPath)) {
+    New-Item -Path $pathsKeyPath -Force
+}
+
+# Deny execution from common risky paths like Temp, AppData, or Downloads
 $riskyPaths = @("$env:TEMP", "$env:APPDATA", "$env:USERPROFILE\Downloads")
+$count = 0  # Reset the counter before use
+
 foreach ($path in $riskyPaths) {
-    $denyRuleKey = "$policyStore\Paths\$count"
+    # Create a unique subkey for each path
+    $denyRuleKey = "$pathsKeyPath\$count"
+    
     New-Item -Path $denyRuleKey -Force
     Set-ItemProperty -Path $denyRuleKey -Name "ItemData" -Value $path
     Set-ItemProperty -Path $denyRuleKey -Name "SaferFlags" -Value 0x00000000  # Deny execution
-    $count++
+    $count++  # Increment the counter
 }
 
 # 3. Deny execution from external drives and network paths (e.g., E:\, Z:\)
@@ -72,18 +90,36 @@ foreach ($drive in $externalDrives) {
     $count++
 }
 
-# 4. Deny specific risky file extensions globally (e.g., .exe, .bat, .js, .ps1, etc.)
+# Define SRP policy registry key
+$policyStore = "HKLM:\Software\Policies\Microsoft\Windows\Safer\CodeIdentifiers"
+
+# Create the policy key if it doesn't exist
+if (-not (Test-Path $policyStore)) {
+    New-Item -Path $policyStore -Force
+}
+
+# Create the Extensions key if it doesn't exist
+$extensionsKeyPath = "$policyStore\Extensions"
+if (-not (Test-Path $extensionsKeyPath)) {
+    New-Item -Path $extensionsKeyPath -Force
+}
+
+# Deny specific risky file extensions globally
 $riskyExtensions = @(
-    ".exe", ".bat", ".vbs", ".js", ".cmd", ".ps1", 
-    ".sh", ".py", ".pl", ".php", ".rb", ".jar", 
+    ".exe", ".bat", ".vbs", ".js", ".cmd", ".ps1",
+    ".sh", ".py", ".pl", ".php", ".rb", ".jar",
     ".wsf", ".scr", ".config", ".ini", ".pif"
 )
 
 foreach ($ext in $riskyExtensions) {
-    $extensionRuleKey = "$policyStore\Extensions\$ext"
+    # Create a unique subkey for each extension in the Extensions key
+    $extensionRuleKey = "$extensionsKeyPath\$ext"
+    
+    # Set the SaferFlags property directly on the extension key
     New-Item -Path $extensionRuleKey -Force
     Set-ItemProperty -Path $extensionRuleKey -Name "SaferFlags" -Value 0x00000000  # Deny execution
 }
+
 
 # 5. Define trusted applications and their known good hashes
 $trustedApplications = @(
@@ -137,17 +173,27 @@ Set-ItemProperty -Path $policyStore -Name "AuditMode" -Value 1
 # 10. Enable certificate-based checks for executable integrity
 Set-ItemProperty -Path $policyStore -Name "AuthenticodeEnabled" -Value 1
 
-# 11. Enhance Windows Defender's protection level
-# Enable real-time protection
+# Ensure the script is running with administrative privileges
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Output "Please run this script as an administrator."
+    exit
+}
+
+# Enable Real-time Protection
 Set-MpPreference -DisableRealtimeMonitoring $false
-# Enable cloud-based protection
-Set-MpPreference -EnableCloudProtection $true
-# Enable automatic sample submission
+
+# Enable Controlled Folder Access (if needed)
+Set-MpPreference -EnableControlledFolderAccess Enabled
+
+# Enable Automatic Sample Submission
 Set-MpPreference -SubmitSamplesConsent 2  # 2 = send all samples automatically
 
-# 12. Configure Anti-Exploit settings for common applications
-# Enable Exploit Protection
-Set-ProcessMitigation -System -Enable DEP, ASLR, and CFG
+# Optional: Enable Potentially Unwanted Application protection
+Set-MpPreference -PUAProtection Enabled  # Potentially Unwanted Application protection
+
+Write-Output "Security settings applied."
+#12 Enable Exploit Protection for the system with valid mitigations
+Set-ProcessMitigation -System -Enable DEP, CFG  # Removed ASLR if unsupported
 
 # Configure exploit protection for specific applications
 $exploitApplications = @(
@@ -159,7 +205,7 @@ $exploitApplications = @(
 
 foreach ($app in $exploitApplications) {
     if (Test-Path $app) {
-        Set-ProcessMitigation -Path $app -Enable DEP, ASLR, and CFG
+        Set-ProcessMitigation -Path $app -Enable DEP, CFG  # Removed ASLR if unsupported
     }
 }
 
@@ -171,8 +217,7 @@ foreach ($cert in $untrustedCertificates) {
     Remove-Item -Path $cert.PSPath -Force
 }
 
-# 14. Block insecure TLS protocols (SSL 2.0, SSL 3.0, TLS 1.0)
-# Set registry keys to disable insecure protocols
+# Define the protocols to block
 $protocols = @(
     "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0",
     "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 3.0",
@@ -180,11 +225,21 @@ $protocols = @(
 )
 
 foreach ($protocol in $protocols) {
-    if (-not (Test-Path $protocol)) {
-        New-Item -Path $protocol -Force
+    # Create the Client key if it doesn't exist
+    $clientPath = "$protocol\Client"
+    if (-not (Test-Path $clientPath)) {
+        New-Item -Path $clientPath -Force
     }
-    New-ItemProperty -Path "$protocol\Client" -Name "Enabled" -Value 0 -PropertyType DWORD -Force
-    New-ItemProperty -Path "$protocol\Server" -Name "Enabled" -Value 0 -PropertyType DWORD -Force
+    # Set the Enabled property for Client to 0 (disabled)
+    New-ItemProperty -Path $clientPath -Name "Enabled" -Value 0 -PropertyType DWORD -Force
+
+    # Create the Server key if it doesn't exist
+    $serverPath = "$protocol\Server"
+    if (-not (Test-Path $serverPath)) {
+        New-Item -Path $serverPath -Force
+    }
+    # Set the Enabled property for Server to 0 (disabled)
+    New-ItemProperty -Path $serverPath -Name "Enabled" -Value 0 -PropertyType DWORD -Force
 }
 
 # 15. Block all remote access related features (e.g., RDP)
