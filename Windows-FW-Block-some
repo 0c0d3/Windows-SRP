@@ -1,0 +1,42 @@
+# List of common LoLBins to block
+$lolBins = @(
+    "C:\Windows\System32\bitsadmin.exe",
+    "C:\Windows\System32\certutil.exe",
+    "C:\Windows\System32\cmd.exe",
+    "C:\Windows\System32\curl.exe",
+    "C:\Windows\System32\powershell.exe",
+    "C:\Windows\System32\wmic.exe",
+    "C:\Windows\System32\mshta.exe",
+    "C:\Windows\System32\powershell_ise.exe",
+    "C:\Windows\System32\runas.exe",
+    "C:\Windows\System32\sc.exe",
+    "C:\Windows\System32\tasklist.exe",
+    "C:\Windows\System32\taskkill.exe",
+    "C:\Windows\System32\whoami.exe",
+    "C:\Windows\System32\schtasks.exe",
+    "C:\Windows\System32\net.exe",
+    "C:\Windows\System32\rundll32.exe",
+    "C:\Windows\System32\msiexec.exe",
+    "C:\Windows\System32\reg.exe",
+    "C:\Windows\System32\setx.exe",
+    "C:\Windows\System32\diskpart.exe",
+    "C:\Windows\System32\explorer.exe"
+)
+
+# Loop through each LoLBin and create firewall rules to block it
+foreach ($lolBin in $lolBins) {
+    $ruleName = "Block LoLBin - " + (Split-Path $lolBin -Leaf)
+
+    # Check if the rule already exists
+    if (-not (Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue)) {
+        New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Block -Program $lolBin -Profile Any
+        New-NetFirewallRule -DisplayName $ruleName -Direction Outbound -Action Block -Program $lolBin -Profile Any
+
+        Write-Host "Created firewall rule to block: $lolBin"
+    } else {
+        Write-Host "Rule already exists for: $lolBin"
+    }
+}
+
+# Optional: Display all created rules
+Get-NetFirewallRule | Where-Object { $_.DisplayName -like "Block LoLBin*" } | Format-Table -AutoSize
