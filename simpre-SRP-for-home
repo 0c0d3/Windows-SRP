@@ -34,12 +34,24 @@ $lolBins = @(
     # Note: explorer.exe is intentionally excluded
 )
 
+# Set the policy store path
+$policyStore = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Safer\CodeIdentifiers\Paths"
+
+# Create the Paths key if it does not exist
+if (-not (Test-Path $policyStore)) {
+    New-Item -Path $policyStore -Force
+}
+
 # Create deny rules for each LoLBin
 foreach ($lolBin in $lolBins) {
-    $denyRuleKey = "$policyStore\Paths\$($lolBin.Replace('\', '_'))"
+    $denyRuleKey = "$policyStore\$($lolBin.Replace('\', '_'))"
+    
+    # Create the individual deny rule key
     New-Item -Path $denyRuleKey -Force
-    Set-ItemProperty -Path $denyRuleKey -Name "ItemData" -Value $lolBin
-    Set-ItemProperty -Path $denyRuleKey -Name "SaferFlags" -Value 0x00000000  # Deny execution
+    
+    # Set the properties for the deny rule key
+    Set-ItemProperty -Path $denyRuleKey -Name "ItemData" -Value $lolBin  # ItemData is a string
+    Set-ItemProperty -Path $denyRuleKey -Name "SaferFlags" -Value 0  # Deny execution (0)
 }
 # 1. Allow specific trusted paths (e.g., C:\Windows, C:\Program Files, C:\Program Files\Windows Defender)
 $trustedPaths = @("C:\Windows", "C:\Program Files", "C:\Program Files (x86)", "C:\Program Files\Windows Defender")
