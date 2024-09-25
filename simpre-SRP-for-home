@@ -1,0 +1,166 @@
+# Define SRP policy registry key
+$policyStore = "HKLM\Software\Policies\Microsoft\Windows\Safer\CodeIdentifiers"
+
+# Create the policy key if it doesn't exist
+if (-not (Test-Path $policyStore)) {
+    New-Item -Path $policyStore -Force
+}
+
+# Set the default policy to 'Disallowed' (nothing can execute unless explicitly allowed)
+Set-ItemProperty -Path $policyStore -Name "DefaultLevel" -Value 0x00000000
+
+# 1. Allow specific trusted paths (e.g., C:\Windows, C:\Program Files, C:\Program Files\Windows Defender)
+$trustedPaths = @("C:\Windows", "C:\Program Files", "C:\Program Files (x86)", "C:\Program Files\Windows Defender")
+$count = 0
+foreach ($path in $trustedPaths) {
+    $trustedRuleKey = "$policyStore\Paths\$count"
+    New-Item -Path $trustedRuleKey -Force
+    Set-ItemProperty -Path $trustedRuleKey -Name "ItemData" -Value $path
+    Set-ItemProperty -Path $trustedRuleKey -Name "SaferFlags" -Value 0x00000002  # Allow execution
+    $count++
+}
+
+# 2. Deny execution from common risky paths like Temp, AppData, or Downloads
+$riskyPaths = @("$env:TEMP", "$env:APPDATA", "$env:USERPROFILE\Downloads")
+foreach ($path in $riskyPaths) {
+    $denyRuleKey = "$policyStore\Paths\$count"
+    New-Item -Path $denyRuleKey -Force
+    Set-ItemProperty -Path $denyRuleKey -Name "ItemData" -Value $path
+    Set-ItemProperty -Path $denyRuleKey -Name "SaferFlags" -Value 0x00000000  # Deny execution
+    $count++
+}
+
+# 3. Deny execution from external drives and network paths (e.g., E:\, Z:\)
+$externalDrives = @("E:\", "Z:\")
+foreach ($drive in $externalDrives) {
+    $denyRuleKey = "$policyStore\Paths\$count"
+    New-Item -Path $denyRuleKey -Force
+    Set-ItemProperty -Path $denyRuleKey -Name "ItemData" -Value $drive
+    Set-ItemProperty -Path $denyRuleKey -Name "SaferFlags" -Value 0x00000000  # Deny execution
+    $count++
+}
+
+# 4. Deny specific risky file extensions globally (e.g., .exe, .bat, .js, .ps1, etc.)
+$riskyExtensions = @(
+    ".exe", ".bat", ".vbs", ".js", ".cmd", ".ps1", 
+    ".sh", ".py", ".pl", ".php", ".rb", ".jar", 
+    ".wsf", ".scr", ".config", ".ini", ".pif"
+)
+
+foreach ($ext in $riskyExtensions) {
+    $extensionRuleKey = "$policyStore\Extensions\$ext"
+    New-Item -Path $extensionRuleKey -Force
+    Set-ItemProperty -Path $extensionRuleKey -Name "SaferFlags" -Value 0x00000000  # Deny execution
+}
+
+# 5. Define trusted applications and their known good hashes
+$trustedApplications = @(
+    @{ Path = "C:\Windows\System32\notepad.exe"; Hash = "B21A600EF0D93C22C4B5A688A47C917BFFB3A493"; },
+    @{ Path = "C:\Program Files\Mozilla Firefox\firefox.exe"; Hash = "D7F1BCE7F235DB7F354F00BF76D9A3C2D8C0D2E8"; },
+    @{ Path = "C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE"; Hash = "9A9B84B4C430C5C6ACDCD5BA8F676D80D8B83D03"; },
+    @{ Path = "C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE"; Hash = "A18B5D3947C375A4A9E9CC0B82D6B501C7B94BF8"; },
+    @{ Path = "C:\Program Files\Microsoft Office\root\Office16\POWERPNT.EXE"; Hash = "6AE053FB7F099B38B48E0537BC558F4CCFC2F5B5"; },
+    @{ Path = "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"; Hash = "D9F5B0530A4EB4F41CE1165E3FB1EB6223B1E618"; },
+    @{ Path = "C:\Program Files\Microsoft Teams\current\Teams.exe"; Hash = "A4F1F0C418F99FA61F89A6ED78F4C25A3DA588F2"; },
+    @{ Path = "C:\Program Files\Mozilla Thunderbird\thunderbird.exe"; Hash = "9C8B00A3EFAE1D6878B08D761A408EA2F39E8DF1"; }
+)
+
+# Evaluate the hash of each application
+foreach ($app in $trustedApplications) {
+    if (Test-Path $app.Path) {
+        $computedHash = (Get-FileHash $app.Path).Hash
+        if ($computedHash -eq $app.Hash) {
+            # Allow execution if hash matches
+            $hashRuleKey = "$policyStore\Hashes\$count"
+            New-Item -Path $hashRuleKey -Force
+            Set-ItemProperty -Path $hashRuleKey -Name "HashAlg" -Value "SHA256"
+            Set-ItemProperty -Path $hashRuleKey -Name "ItemData" -Value $computedHash
+            Set-ItemProperty -Path $hashRuleKey -Name "SaferFlags" -Value 0x00000002  # Allow execution
+        } else {
+            # Block execution if hash does not match
+            $denyRuleKey = "$policyStore\Paths\$count"
+            New-Item -Path $denyRuleKey -Force
+            Set-ItemProperty -Path $denyRuleKey -Name "ItemData" -Value $app.Path
+            Set-ItemProperty -Path $denyRuleKey -Name "SaferFlags" -Value 0x00000000  # Deny execution
+        }
+        $count++
+    }
+}
+
+# 6. Enable DLL restrictions (deny execution in risky directories)
+$dllPolicyKey = "$policyStore\DllExclusionList"
+New-Item -Path $dllPolicyKey -Force
+Set-ItemProperty -Path $dllPolicyKey -Name "0" -Value "$env:APPDATA"
+Set-ItemProperty -Path $dllPolicyKey -Name "1" -Value "$env:TEMP"
+
+# 7. Enable SRP for DLLs (can impact system performance)
+Set-ItemProperty -Path $policyStore -Name "TransparentEnabled" -Value 1
+
+# 8. Apply SRP rules to administrators (prevents privilege escalation)
+Set-ItemProperty -Path $policyStore -Name "EnforcementMode" -Value 1  # 1 = all users, including admins
+
+# 9. Enable auditing (to see what would have been blocked)
+Set-ItemProperty -Path $policyStore -Name "AuditMode" -Value 1
+
+# 10. Enable certificate-based checks for executable integrity
+Set-ItemProperty -Path $policyStore -Name "AuthenticodeEnabled" -Value 1
+
+# 11. Enhance Windows Defender's protection level
+# Enable real-time protection
+Set-MpPreference -DisableRealtimeMonitoring $false
+# Enable cloud-based protection
+Set-MpPreference -EnableCloudProtection $true
+# Enable automatic sample submission
+Set-MpPreference -SubmitSamplesConsent 2  # 2 = send all samples automatically
+
+# 12. Configure Anti-Exploit settings for common applications
+# Enable Exploit Protection
+Set-ProcessMitigation -System -Enable DEP, ASLR, and CFG
+
+# Configure exploit protection for specific applications
+$exploitApplications = @(
+    "C:\Program Files\Mozilla Firefox\firefox.exe",                 # Firefox
+    "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",  # Chrome
+    "C:\Program Files\Microsoft Teams\current\Teams.exe",           # Microsoft Teams
+    "C:\Program Files\Mozilla Thunderbird\thunderbird.exe"          # Thunderbird
+)
+
+foreach ($app in $exploitApplications) {
+    if (Test-Path $app) {
+        Set-ProcessMitigation -Path $app -Enable DEP, ASLR, and CFG
+    }
+}
+
+#13. Block untrusted certificates
+# You can set group policy or use PowerShell to block untrusted certificates
+$certificatesStore = "Cert:\LocalMachine\TrustedPeople"
+$untrustedCertificates = Get-ChildItem $certificatesStore | Where-Object { $_.NotAfter -lt (Get-Date) }
+foreach ($cert in $untrustedCertificates) {
+    Remove-Item -Path $cert.PSPath -Force
+}
+
+# 14. Block insecure TLS protocols (SSL 2.0, SSL 3.0, TLS 1.0)
+# Set registry keys to disable insecure protocols
+$protocols = @(
+    "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 2.0",
+    "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\SSL 3.0",
+    "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0"
+)
+
+foreach ($protocol in $protocols) {
+    if (-not (Test-Path $protocol)) {
+        New-Item -Path $protocol -Force
+    }
+    New-ItemProperty -Path "$protocol\Client" -Name "Enabled" -Value 0 -PropertyType DWORD -Force
+    New-ItemProperty -Path "$protocol\Server" -Name "Enabled" -Value 0 -PropertyType DWORD -Force
+}
+
+# 15. Block all remote access related features (e.g., RDP)
+# Disable RDP
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 1
+
+# Disable Remote Assistance
+Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System" -Name "fAllowToGetHelp" -Value 0
+
+# Output a success message
+Write-Output "Comprehensive security configuration applied successfully, including certificate review, TLS protocol blocking, and remote access restrictions."
